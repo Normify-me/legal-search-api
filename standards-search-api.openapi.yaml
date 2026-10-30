@@ -1,1 +1,476 @@
-a
+openapi: 3.0.3
+info:
+  title: Normify Standards Search API
+  version: "1.0.0"
+  description: |
+    Ranked search over a standard's identifier, title, and short title. This
+    is the same lookup as the in-app database search and the spotlight search
+    once a keyword is entered.
+
+    ## Authentication
+
+    Send `POST /api/token/` with the account email and password. The response
+    contains a refresh token and an access token. Send the access token on
+    every request:
+
+    ```
+    Authorization: Bearer <access_token>
+    ```
+
+    Fetch a new access token when you start a new integration run, or
+    exchange the refresh token at `POST /api/token/refresh/`.
+
+    The account must have the `users.api_access` permission. A valid login
+    without that permission returns HTTP 403.
+
+    ## What is searched
+
+    The endpoint matches `keyword` against identifier, title (`name`), and
+    short title (`name_short`). Matching is case-insensitive. Punctuation
+    other than `/` is treated as a separator.
+
+    Results are ordered by relevance. Identifier matches come before title and
+    short-title matches. `count` is the number of rows in this response, not
+    the total number of matches. There is no cursor. Narrow `keyword` or raise
+    `limit` (up to 100) to see more.
+
+    ## Usage limits
+
+    Each call loads every match and ranks it before `limit` is applied. A
+    short or very common keyword is expensive even when few rows are returned.
+    Clients must follow the same limits as the in-app spotlight:
+
+    * Send `keyword` only when it has at least 3 characters after trimming.
+      Shorter values return HTTP 400 and are not searched.
+    * Do not send a keyword that is only `API`, `CSA`, `DIN`, `IEC`, `ISO`,
+      `JIS`, `SAE`, `UNE`, `VDE`, or `VDI`. Those return HTTP 400 and are not
+      searched. Add a number or more words, for example `ISO 9001`.
+    * Keep `keyword` at or below 200 characters after trimming.
+    * Wait 200 ms after the last change before sending a request. Do not send
+      one request per keystroke.
+    * Keep at most one search in flight. Drop the previous request when the
+      keyword changes.
+    * Send at most one request every 200 ms. Do not poll, loop, or run
+      parallel searches from one account.
+    * Set `limit` to the number of rows you show. The default is 20 and the
+      maximum is 100.
+    * Use `GET /research/api/standards-by-source-name/` to read a whole
+      source. This endpoint is for interactive lookup.
+
+  contact:
+    name: Normify
+    url: https://app.normify.me
+
+servers:
+  - url: https://app.normify.me
+    description: Production
+
+tags:
+  - name: Authentication
+    description: Obtain and refresh the bearer token.
+  - name: Standards
+    description: Search standards by keyword.
+
+paths:
+  /api/token/:
+    post:
+      tags: [Authentication]
+      operationId: obtainToken
+      security: []
+      summary: Obtain an access token
+      description: |
+        Exchange the account email and password for a JWT access token and a
+        refresh token. Use the access token as the bearer token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+            example:
+              email: you@example.com
+              password: your-password
+      responses:
+        "200":
+          description: Tokens issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+              example:
+                access: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access
+                refresh: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh
+        "401":
+          description: Email or password was rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailError"
+              example:
+                detail: No active account found with the given credentials
+
+  /api/token/refresh/:
+    post:
+      tags: [Authentication]
+      operationId: refreshToken
+      security: []
+      summary: Refresh an access token
+      description: Exchange a valid refresh token for a new access token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+            example:
+              refresh: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh
+      responses:
+        "200":
+          description: New access token issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessToken"
+              example:
+                access: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access
+        "401":
+          description: Refresh token is missing, expired, or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailError"
+
+  /research/api/standards-search/:
+    get:
+      tags: [Standards]
+      operationId: searchStandards
+      summary: Search standards by keyword
+      description: |
+        Returns up to `limit` standards whose identifier, title, or short
+        title matches `keyword`, best match first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Keyword"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Ranked matches for this keyword.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StandardsSearchResponse"
+              examples:
+                matches:
+                  summary: One match
+                  value:
+                    success: true
+                    data:
+                      keyword: ISO 9001
+                      limit: 20
+                      count: 1
+                      standards:
+                        - normify_identifier: AbCdEf123456
+                          identifier: DIN EN ISO 9001
+                          title: Qualitätsmanagementsysteme
+                          short_title: ISO 9001
+                          source_name: DIN
+                noMatches:
+                  summary: No matches
+                  value:
+                    success: true
+                    data:
+                      keyword: no-such-standard
+                      limit: 20
+                      count: 0
+                      standards: []
+        "400":
+          description: |
+            A query parameter is missing or invalid. `MISSING_KEYWORD` when
+            `keyword` is missing or blank. `KEYWORD_TOO_SHORT` when it is
+            shorter than 3 characters. `KEYWORD_TOO_BROAD` when it is only a
+            catalog prefix such as `DIN` or `ISO`. `KEYWORD_TOO_LONG` when it
+            is longer than 200 characters. `INVALID_LIMIT` when `limit` is
+            not an integer from 1 to 100.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingKeyword:
+                  summary: keyword is missing
+                  value:
+                    success: false
+                    error:
+                      code: MISSING_KEYWORD
+                      message: keyword query parameter is required
+                      details: {}
+                keywordTooShort:
+                  summary: keyword is shorter than 3 characters
+                  value:
+                    success: false
+                    error:
+                      code: KEYWORD_TOO_SHORT
+                      message: keyword must be at least 3 characters
+                      details:
+                        min_length: 3
+                keywordTooBroad:
+                  summary: keyword is only a catalog prefix
+                  value:
+                    success: false
+                    error:
+                      code: KEYWORD_TOO_BROAD
+                      message: keyword matches too many standards; include a number or more words, for example ISO 9001
+                      details: {}
+                keywordTooLong:
+                  summary: keyword is longer than 200 characters
+                  value:
+                    success: false
+                    error:
+                      code: KEYWORD_TOO_LONG
+                      message: keyword must be at most 200 characters
+                      details:
+                        max_length: 200
+                invalidLimit:
+                  summary: limit is outside the allowed range
+                  value:
+                    success: false
+                    error:
+                      code: INVALID_LIMIT
+                      message: limit must be an integer from 1 to 100
+                      details:
+                        max_limit: 100
+        "401":
+          description: The bearer token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailError"
+              example:
+                detail: Authentication credentials were not provided.
+        "403":
+          description: The account is authenticated but is not allowed to call this API.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailError"
+              example:
+                detail: You do not have permission to perform this action.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token from `POST /api/token/` or `POST /api/token/refresh/`.
+
+  parameters:
+    Keyword:
+      name: keyword
+      in: query
+      required: true
+      description: |
+        Text matched against identifier, title, and short title. Surrounding
+        whitespace is removed. Must be 3 to 200 characters after trimming.
+        Shorter values are rejected and are not searched. A keyword that is
+        only `API`, `CSA`, `DIN`, `IEC`, `ISO`, `JIS`, `SAE`, `UNE`, `VDE`,
+        or `VDI` is rejected and is not searched. URL-encode the value
+        (`2006/42` becomes `2006%2F42`).
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 200
+      example: ISO 9001
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Maximum number of results, best match first. Must be an integer from
+        1 to 100. A missing or blank value uses 20. A value outside the range
+        returns HTTP 400. This caps the response. It does not reduce the set
+        of rows that are ranked, so keep keywords specific.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+
+  schemas:
+    TokenRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Account email address.
+        password:
+          type: string
+          format: password
+          description: Account password.
+
+    TokenPair:
+      type: object
+      required: [access, refresh]
+      properties:
+        access:
+          type: string
+          description: Bearer token. Valid for 30 days.
+        refresh:
+          type: string
+          description: Token used to obtain a new access token. Valid for 7 days.
+
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refresh]
+      properties:
+        refresh:
+          type: string
+          description: Refresh token from `POST /api/token/`.
+
+    AccessToken:
+      type: object
+      required: [access]
+      properties:
+        access:
+          type: string
+          description: New bearer token. Valid for 30 days.
+
+    DetailError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+          description: Present for some token failures, for example `token_not_valid`.
+        messages:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    StandardsSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: "#/components/schemas/StandardsSearchData"
+
+    StandardsSearchData:
+      type: object
+      additionalProperties: false
+      required: [keyword, limit, count, standards]
+      properties:
+        keyword:
+          type: string
+          description: `keyword` from the request, with surrounding whitespace removed.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Result cap used for this response.
+        count:
+          type: integer
+          minimum: 0
+          description: Length of `standards` in this response.
+        standards:
+          type: array
+          description: |
+            Matches, best first. Empty when nothing matched or the keyword
+            had no searchable tokens.
+          items:
+            $ref: "#/components/schemas/StandardSearchHit"
+
+    StandardSearchHit:
+      type: object
+      additionalProperties: false
+      required:
+        - normify_identifier
+        - identifier
+        - title
+        - short_title
+        - source_name
+      properties:
+        normify_identifier:
+          type: string
+          maxLength: 22
+          description: Stable Normify identifier of the standard.
+        identifier:
+          type: string
+          nullable: true
+          description: Catalog identifier. Null when unset.
+        title:
+          type: string
+          description: Standard name (`name`).
+        short_title:
+          type: string
+          description: Short name (`name_short`). Empty when unset.
+        source_name:
+          type: string
+          nullable: true
+          description: Name of the standard's source.
+
+    ErrorBody:
+      type: object
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+          enum:
+            - MISSING_KEYWORD
+            - KEYWORD_TOO_SHORT
+            - KEYWORD_TOO_BROAD
+            - KEYWORD_TOO_LONG
+            - INVALID_LIMIT
+        message:
+          type: string
+          description: Human-readable explanation.
+        details:
+          type: object
+          description: |
+            Extra context. Empty for `MISSING_KEYWORD` and
+            `KEYWORD_TOO_BROAD`. `min_length` for `KEYWORD_TOO_SHORT` (3).
+            `max_length` for `KEYWORD_TOO_LONG` (200). `max_limit` for
+            `INVALID_LIMIT` (100).
+          properties:
+            min_length:
+              type: integer
+              enum: [3]
+            max_length:
+              type: integer
+              enum: [200]
+            max_limit:
+              type: integer
+              enum: [100]
+          additionalProperties: false
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+
+tags:
+  - name: Authentication
+    description: Obtain and refresh the bearer token.
+  - name: Standards
+    description: Search standards by keyword.

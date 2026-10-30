@@ -50,7 +50,7 @@ Each call loads every match and ranks it in memory before `limit` is applied. A 
 | In-flight requests | 1 | When the keyword changes, drop the previous request. The spotlight replaces the in-flight call instead of letting them pile up. |
 | Result `limit` | 1–100, default 20 | Ask only for the rows you show. `100` is the hard maximum, the same cap as the in-app search. |
 | Pace | at most one request every 200 ms | Do not poll this endpoint and do not run it in a tight loop or in parallel from one account. |
-| What this is for | interactive lookup | To read a whole source, use [`GET /research/api/standards-by-source-name/`](README_STANDARDS_BY_SOURCE_NAME_API.md). |
+| What this is for | interactive lookup | To read a whole source, use [Fetch-Legal-Data-API](https://github.com/Normify-me/legal-data-fetch-api) |
 
 A keyword that is long enough but has no searchable tokens (for example `...`) returns HTTP 200 with an empty `standards` list. It does not run a broad scan.
 

@@ -10,7 +10,7 @@ An empty keyword does not list the account's kataster. That list is only shown i
 - **Method**: `GET`
 - **View**: `StandardsSearchAPIView`
 - **Permission**: authenticated user with `users.api_access` (`IsAPIUser`)
-- **OpenAPI**: [standards-search-api.openapi.yaml](../../docs/api/standards-search-api.openapi.yaml)
+- **OpenAPI**: [standards-search-api.openapi.yaml](./standards-search-api.openapi.yaml)
 
 ## Authentication
 

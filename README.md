@@ -1,8 +1,20 @@
-# Standards Search API
+<img width="200"  alt="pb_normify_grey" src="https://github.com/user-attachments/assets/b3777e1c-20a3-42e7-a7ff-c8af17c0ca94" />
+
+<img width="200"  alt="pb_normify_white" src="https://github.com/user-attachments/assets/56a453c7-5417-4e73-bc45-857c1a6c9062" />
+
+# Normify Legal Search API
+
+## Overview
 
 Ranked search over a standard's identifier, title, and short title. This is the same lookup as the in-app database search and the spotlight search once a keyword is entered. AI-created standards are omitted. Archived standards are omitted. Each account only sees standards it is allowed to see: public standards in sources the account may access, plus standards owned by the account or its company.
 
 An empty keyword does not list the account's kataster. That list is only shown in the in-app spotlight.
+
+
+## OpenAPI Implementations
+
+<img height="25" alt="OpenAPI Logo" src="https://github.com/user-attachments/assets/44fc57cd-9497-4812-8777-72d359334204" /> [OpenAPI Implementation](./standards-search-api.openapi.yaml)
+
 
 ## Endpoint
 
@@ -10,7 +22,6 @@ An empty keyword does not list the account's kataster. That list is only shown i
 - **Method**: `GET`
 - **View**: `StandardsSearchAPIView`
 - **Permission**: authenticated user with `users.api_access` (`IsAPIUser`)
-- **OpenAPI**: [standards-search-api.openapi.yaml](./standards-search-api.openapi.yaml)
 
 ## Authentication
 
